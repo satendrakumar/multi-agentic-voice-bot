@@ -1,0 +1,39 @@
+[project]
+name = "multi-agentic-voice-bot"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "anthropic>=1.9.0",
+    "openai>=3.20.0",
+    "python-dotenv>=1.2.3",
+]
+
+[project.optional-dependencies]
+voice = [
+    "kokoro>=0.9.4",
+    "noisereduce>=3.0.3",
+    "numpy>=2.5.3",
+    "onnx==1.20.1",
+    "onnxruntime==1.20.1",
+    "parler-tts",
+    "pyrnnoise>=0.4.5",
+    "scipy>=1.18.1",
+    "silero-vad>=6.2.3",
+    "sounddevice>=0.5.6",
+    "torch>=2.14.0",
+    "torchaudio>=2.11.0",
+    "transformers>=4.46.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
+[tool.uv.sources]
+parler-tts = { git = "https://github.com/huggingface/parler-tts.git" }
