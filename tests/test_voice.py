@@ -150,6 +150,9 @@ class FakeIO:
     def play(self, audio):
         self.played += 1
 
+    def close(self):
+        self.closed = True
+
 
 def test_voice_session_round_trip():
     bot, tts, io = StubBot(["<|ENGLISH|> Bye. ENDCALL"]), FakeTTS(), FakeIO()
@@ -157,6 +160,7 @@ def test_voice_session_round_trip():
     assert bot.heard == [("part1", 0.9)]
     assert tts.spoken == [(Lang.HINDI, "Hello."), (Lang.ENGLISH, "Bye.")]  # tag picks the voice, no ENDCALL
     assert io.played == 2
+    assert io.closed  # devices released when the call ends
 
 
 def test_long_reply_is_spoken_in_pieces():

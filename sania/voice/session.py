@@ -48,12 +48,15 @@ class VoiceSession:
         self.bot, self.stt, self.tts, self.io = bot, stt, tts, io
 
     def run(self) -> None:
-        self._speak(self.bot.start())
-        while not self.bot.ended:
-            audio = self.io.record_utterance()
-            transcript = self.stt.transcribe(audio, self.bot.state.language)
-            log.info("caller: %s", transcript.text or "<silence>")
-            self._speak(self.bot.respond(transcript.text, transcript.confidence))
+        try:
+            self._speak(self.bot.start())
+            while not self.bot.ended:
+                audio = self.io.record_utterance()
+                transcript = self.stt.transcribe(audio, self.bot.state.language)
+                log.info("caller: %s", transcript.text or "<silence>")
+                self._speak(self.bot.respond(transcript.text, transcript.confidence))
+        finally:
+            self.io.close()
 
     def _speak(self, line: str) -> None:
         """Stream the reply piece by piece: synthesize the next piece while the current one plays."""

@@ -23,7 +23,8 @@ class KokoroTTS:
         from kokoro import KPipeline
 
         # espeak-ng logs "language switch flags ..." for every mixed Hindi/English line.
-        logging.getLogger("phonemizer").setLevel(logging.ERROR)
+        # phonemizer resets its logger's level whenever a backend is created, so disable it instead.
+        logging.getLogger("phonemizer").disabled = True
 
         hindi = KPipeline(lang_code=LANG_CODES[Lang.HINDI], repo_id=REPO_ID)
         english = KPipeline(lang_code=LANG_CODES[Lang.ENGLISH], repo_id=REPO_ID, model=hindi.model)

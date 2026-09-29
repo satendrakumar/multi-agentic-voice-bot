@@ -17,6 +17,9 @@ class WhisperSTT:
                  languages: tuple[str, ...] = ALLOWED_LANGUAGES):
         import torch
         from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor
+        from transformers.utils import logging as hf_logging
+
+        hf_logging.set_verbosity_error()  # hides per-call deprecation / attention-mask notices
 
         if device is None:
             device = "cuda:0" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
