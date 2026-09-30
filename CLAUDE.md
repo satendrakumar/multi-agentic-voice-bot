@@ -18,6 +18,16 @@ uv sync --extra voice && uv run python main.py --voice   # mic/speaker; Kokoro's
 
 `tests/test_voice.py` is skipped unless the `voice` extra is installed (`pytest.importorskip("numpy")`).
 
+```bash
+uv run python scripts/simulate_calls.py [scenario ...]   # replay scripted callers on the real LLM (prompt tuning)
+```
+
+**Prompts live in `prompts/<version>/`, not in code** (`SANIA_PROMPT_VERSION`, default `v1`; see `prompts/README.md`).
+- `sania/prompts.py:load(name)` reads `<name>.md`; `Agent.instructions` is `load(agent.name)`, and `system_prompt()` prepends `shared.md`.
+- Negotiation move texts are in `negotiation_moves.toml`.
+- Change prompts by adding a new version folder, not by editing a released one. `tests/test_prompts.py` checks every version has all files.
+- Prompt examples use `<name>`; `guard.autofix` replaces it with the real name.
+
 Settings are read by `sania/config.py` from the environment and a repo-root `.env` (template: `.env.example`, which documents every variable).
 - The default LLM is `SANIA_LLM=openai`: any OpenAI-compatible server at `SANIA_LLM_BASE_URL`, locally vLLM serving `Qwen/Qwen3.5-4B` on port 8000 with `max_model_len` 8192.
 - `SANIA_LLM=claude` uses the Anthropic API instead.
@@ -55,6 +65,13 @@ There is no linter or formatter configured.
 - The reply's `<|HINDI|>`/`<|ENGLISH|>` tag picks the TTS voice (`session.split_reply`, which also strips `ENDCALL`). `_speak` synthesizes the next piece while the current one plays.
 - The default voice stack is Whisper large-v3-turbo (STT) and Kokoro-82M (TTS; one `KModel` shared by the Hindi `h` and English `a` pipelines).
 - IndicConformer and Indic Parler-TTS are registered alternatives. parler-tts pins `transformers==4.46.1` for the whole environment.
+
+**Small-model design:** the default LLM is a 4B local model, so decisions are made in code and the model mostly phrases.
+- `negotiation.next_move()` picks the move from state (minimum pivot → stall callout → angles alternating with funds ideas → date). The model reports it back in `signals.move_done`, and `_update_negotiation` records it.
+- Rules the small model breaks are enforced in `guard.check`: false payment claims, masculine self-reference, agreeing the amount is wrong, promising calls will stop.
+- Closing: a help question never ends the call.
+- Opt-out needs stop-calling words as well as the classifier's label.
+- Language locks after 3 caller replies that indicate a language.
 
 **Adding or changing an agent:** update its class, then the `Stage` enum + `self.agents` map if it's new, `config.EFFORT` (and `FAST_AGENTS` if relevant), and its `_update_state` branch if it emits new signals. Put per-agent output checks in `validate()`, not in `guard.py`.
 

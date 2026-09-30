@@ -9,6 +9,7 @@ Per caller turn:
 """
 
 import logging
+import re
 from concurrent.futures import ThreadPoolExecutor
 
 from sania import config, guard, input_quality, language
@@ -22,6 +23,9 @@ from sania.llm import LLM, get_llm
 from sania.state import CallState, Lang, Profile, Stage
 
 log = logging.getLogger(__name__)
+
+# The closing "any other help" question, however the model words it.
+HELP_QUESTION = re.compile(r"(और|other|else).{0,20}(help|हेल्प|assist|सहायता)|help चाहिए|हेल्प चाहिए", re.I)
 
 VOICEMAIL_LINE ="Sorry for the inconvenience. Thank you."
 
@@ -149,6 +153,8 @@ class Orchestrator:
                 r.speech = r.speech or input_quality.LINES["bye"][s.language]
 
         elif agent.name == "reason":
+            if s.reason_asked and sig.get("reason_class", "unknown") == "unknown" and not r.handoff:
+                r.speech, r.handoff = "", "negotiation"  # the reason is asked only once
             s.reason_asked = s.reason_asked or bool(r.speech.strip())
             if sig.get("reason_class", "unknown") != "unknown":
                 s.reason_class = sig["reason_class"]
@@ -168,22 +174,31 @@ class Orchestrator:
 
         elif agent.name == "closing":
             s.closing_turns += 1
-            s.help_asked = s.help_asked or sig.get("asked_help", False)
+            asks_help = bool(HELP_QUESTION.search(r.speech)) or sig.get("asked_help", False)
+            if asks_help and s.help_asked:
+                r.speech, r.end_call = "", True        # asked once already: just the goodbye (fallback line)
+            elif asks_help:
+                s.help_asked, r.end_call = True, False  # a question never ends the call
             if s.irritated or s.closing_turns >= 3:
                 r.end_call = True
 
     def _update_negotiation(self, r: AgentResult) -> None:
         s, sig = self.state, r.signals
         s.negotiation_turns += 1
-        s.ask_level = sig.get("ask_level") or s.ask_level
-        for key, used in (("angle_used", s.angles_used), ("angle_deepened", s.angles_deepened),
-                          ("funds_idea_used", s.funds_ideas_used)):
-            if sig.get(key) and sig[key] not in used:
-                used.append(sig[key])
-        if sig.get("callout"):
+
+        # The move was chosen by negotiation.next_move(); record it so it is not repeated.
+        move = sig.get("move_done") or ""
+        kind, _, name = move.partition(":")
+        if kind == "angle" and name not in s.angles_used:
+            s.angles_used.append(name)
+        elif kind == "funds" and name not in s.funds_ideas_used:
+            s.funds_ideas_used.append(name)
+        elif kind == "callout":
             s.callouts += 1
-        if sig.get("new_reason_class") and s.reason_class == "unknown":
-            s.reason_class = sig["new_reason_class"]
+        elif kind == "pivot_minimum":
+            s.ask_level = "MAD"
+        if move:
+            s.questions_asked.append(move)
 
         c, new = s.commitment, sig.get("commitment") or {}
         c.amount = new.get("amount") or c.amount

@@ -50,3 +50,18 @@ def enum(*values: str) -> dict:
 STRING = {"type": "string"}
 BOOL = {"type": "boolean"}
 NUMBER = {"type": "number"}
+
+
+def schema_hint(schema: dict) -> str:
+    """A compact one-line picture of the expected JSON, e.g. {"speech": "...", "end_call": true|false}.
+
+    Much shorter than the full JSON schema, so small models see the shape without the noise.
+    """
+    if "anyOf" in schema:
+        return "|".join(schema_hint(s) for s in schema["anyOf"])
+    if "enum" in schema:
+        return "|".join(f'"{v}"' for v in schema["enum"])
+    kind = schema.get("type")
+    if kind == "object":
+        return "{" + ", ".join(f'"{k}": {schema_hint(v)}' for k, v in schema["properties"].items()) + "}"
+    return {"string": '"..."', "boolean": "true|false", "number": "0.0", "null": "null"}.get(kind, '"..."')

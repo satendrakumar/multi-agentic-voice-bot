@@ -11,8 +11,27 @@ from sania.state import CallState, Lang, Stage
 
 EMPATHY = [
     "समझ सकती हूँ", "समझती हूँ", "i understand", "i can understand", "कोई बात नहीं",
-    "no problem", "sorry to hear", "दुख हुआ",
+    "no problem", "sorry to hear", "दुख हुआ", "difficult situation", "tough time", "मुश्किल",
+    "परेशानी समझ", "i know it", "i can see",
 ]
+# Sania cannot take payments; claiming one was made or processed is a false statement.
+FALSE_PAYMENT_CLAIMS = re.compile(
+    r"\bprocess(ed|ing)?\b|\bdeduct|payment (is )?done|payment हो गया|i have paid|i will pay|"
+    r"i('| a)m paying|मैं payment कर (दूँगी|दूंगी|देती)|debit कर (दिया|दूँगी)",
+    re.I,
+)
+# Never agree that a charge or the amount is wrong (docs: Levers, "Forbidden").
+AGREES_WRONG_AMOUNT = re.compile(
+    r"(यह|ये|this|the|your|आपका)\s+(amount|charge|transaction|bill)\s+(galat|गलत|wrong|incorrect)", re.I
+)
+# Opt-out must be acknowledged without promising that the calls will stop.
+PROMISE_NO_CALLS = re.compile(
+    r"बंद कर (दूँगी|दूंगी|देंगे|दिया)|call नहीं (आएगा|आएंगे|करेंगे)|won'?t (call|contact)|will not (call|contact)|"
+    r"no more calls|stop (the )?calls",
+    re.I,
+)
+# Sania is female: masculine first-person verb endings are wrong for her.
+MASCULINE_SELF = ["रहा हूँ", "रहा हूं", "सकता हूँ", "सकता हूं", "करूँगा", "करूंगा", "दूँगा", "दूंगा", "बताता हूँ"]
 HEDGING = [
     "check करवा", "let me check", "i'll check", "i will check", "team से confirm",
     "confirm करके बताती", "waiver करवा", "reverse करवा",
@@ -43,6 +62,7 @@ def autofix(speech: str, state: CallState, name_allowed: bool) -> str:
 
     name = state.profile.name_dev
     if name:
+        text = re.sub(r"<\s*name\s*>", name, text, flags=re.I)  # prompt examples write the name as <name>
         your = "your" if state.language == Lang.ENGLISH else "आपका"
         text = re.sub(rf"{name}(\s*जी)?\s*['’]s", your, text)          # never possessive
         if name_allowed:
@@ -91,6 +111,14 @@ def check(speech: str, state: CallState, user_text: str = "") -> list[str]:
         problems.append("Internal jargon used. Say 'minimum' or describe the effect.")
     if any(t in low for t in THREATS):
         problems.append("No threats and never say charges are increasing.")
+    if FALSE_PAYMENT_CLAIMS.search(speech):
+        problems.append("You cannot take or process payments. The customer pays in their app, net banking or via customer care.")
+    if AGREES_WRONG_AMOUNT.search(speech):
+        problems.append("Never agree that the amount or a charge is wrong. Customer care will best handle it.")
+    if PROMISE_NO_CALLS.search(speech):
+        problems.append("Never promise that the calls will stop. Just acknowledge the request.")
+    if any(m in speech for m in MASCULINE_SELF):
+        problems.append("You are female: say 'रही हूँ', 'सकती हूँ', 'दूँगी', never the masculine form.")
 
     # Repeating the minimum figure is fine when the caller asks for it or offers another amount.
     caller_amount = re.search(

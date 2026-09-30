@@ -1,0 +1,20 @@
+# Instructions for each negotiation move. Code (sania/agents/negotiation.py:next_move) picks the move;
+# the model phrases it. {mad} = the minimum amount in words, {line} = the angle text below.
+
+confirm_payment = "They are willing. Ask them to pay the full amount today and whether by UPI or the app, and suggest auto pay so it does not slip again"
+pivot_minimum = "Say that at least the minimum of {mad} must be paid today, and ask if they can do it today"
+callout = "Politely say that waiting does not work because the payment is pending since the due date, and ask for the minimum today"
+angle = "Say that {line}, then ask: today or tomorrow for the minimum"
+ask_date = "Ask for a firm date for the minimum within the next two to three days, as a choice of two dates"
+
+[angles]
+cibil = "a pending payment gets reported on सिबिल and lowers the credit score"
+card_block = "the card can get blocked while the minimum stays pending"
+future_credit = "future loan and credit card applications can get rejected"
+escalation = "the account can get escalated and more follow-up calls will come"
+other_products = "it can affect their other HDFC Bank products"
+
+[funds]
+savings_family = "Suggest arranging the minimum today from savings or from family, and ask if today works"
+alt_mode = "Suggest paying the minimum right now by UPI, net banking or PayZapp, and ask which one"
+salary_anchor = "Ask when their salary or money comes in, and offer a choice of two near dates for the minimum"

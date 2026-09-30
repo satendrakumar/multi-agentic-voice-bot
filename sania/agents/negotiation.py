@@ -1,88 +1,72 @@
-"""Agent 4 — Negotiation, the core (docs/agents/04-negotiation.md)."""
+"""Agent 4 — Negotiation, the core (docs/agents/04-negotiation.md).
 
+Strategy lives in code: `next_move()` picks this turn's move from the call state
+(minimum pivot, stall callout, one impact angle, one funds idea, binary date) and
+hands the model a plain instruction. The model only reacts to what the caller just
+said (agreement, a date, a smaller offer, a side topic) or phrases the move.
+Small local models handle this far better than a long strategy prompt.
+"""
+
+from sania import prompts
 from sania.agents.base import Agent
 from sania.llm import BOOL, STRING, enum, nullable, obj
-from sania.state import (
-    ALL_TOPICS, FUNDS_IDEAS, IMPACT_ANGLES, REASON_CLASSES, CallState, Lang,
-)
+from sania.state import ALL_TOPICS, FUNDS_IDEAS, CallState, Lang
+
+# Best-fitting angle first for each reason (docs: "fit their reason, don't default to सिबिल").
+ANGLE_ORDER = {
+    "stalling": ["cibil", "card_block", "escalation", "future_credit", "other_products"],
+    "refusal": ["cibil", "escalation", "future_credit", "card_block", "other_products"],
+    "hardship": ["future_credit", "card_block", "cibil", "other_products", "escalation"],
+    "willing": ["card_block", "cibil", "future_credit", "other_products", "escalation"],
+}
+
+
+def next_move(state: CallState) -> tuple[str, str]:
+    """(move id, instruction) for this turn. Instruction texts: prompts/<version>/negotiation_moves.toml."""
+    moves = prompts.load_toml("negotiation_moves")
+    reason = state.reason_class
+    if reason == "willing" and "confirm_payment" not in state.questions_asked:
+        return "confirm_payment", moves["confirm_payment"]
+    if not state.mad_spoken:
+        return "pivot_minimum", moves["pivot_minimum"].format(mad=state.profile.spoken()["mad_words"])
+    if reason in ("stalling", "unknown") and state.callouts == 0:
+        return "callout", moves["callout"]
+
+    angles = [a for a in ANGLE_ORDER.get(reason, ANGLE_ORDER["stalling"]) if a not in state.angles_used]
+    funds = [f for f in FUNDS_IDEAS if f not in state.funds_ideas_used]
+    funds_first = reason == "hardship"  # hardship: solve the money problem before any consequence
+    angle_turn = len(state.angles_used) < len(state.funds_ideas_used) + (0 if funds_first else 1)
+    if angles and (angle_turn or not funds):
+        return f"angle:{angles[0]}", moves["angle"].format(line=moves["angles"][angles[0]])
+    if funds:
+        return f"funds:{funds[0]}", moves["funds"][funds[0]]
+    return "ask_date", moves["ask_date"]
 
 
 class NegotiationAgent(Agent):
     name = "negotiation"
     handoffs = ("closing", "dispute", "servicing")
     signals_schema = obj(
-        ask_level=enum("OUT", "MAD", "DATE"),
-        angle_used=nullable(enum(*IMPACT_ANGLES)),
-        angle_deepened=nullable(enum(*IMPACT_ANGLES)),
-        funds_idea_used=nullable(enum(*FUNDS_IDEAS)),
-        callout=BOOL,
+        move_done=nullable(STRING),
         commitment=obj(
             amount=nullable(enum("OUT", "MAD")),
             ptp_date=nullable(STRING),
             mode=nullable(STRING),
             firm_today=BOOL,
         ),
-        new_reason_class=nullable(enum(*REASON_CLASSES)),
         irritated=BOOL,
         topic=nullable(enum(*ALL_TOPICS)),
-        question_intent=STRING,
     )
     fallback_lines = {
         Lang.HINDI: "आज minimum clear कर पाएंगे, हाँ या नहीं.",
         Lang.ENGLISH: "Can you clear the minimum today, yes or no.",
     }
-    instructions = """
-ROLE: You negotiate payment on an overdue HDFC credit card. Goal, in order: the full outstanding today,
-else the minimum today, else a firm near date for the minimum with the payment mode.
-Read the reply, find the weak point in the excuse and turn it into a reason to pay now. Never let a vague answer pass;
-pin it to amount, date and mode. Ask when or how, never whether. Prefer binary choices ("आज या कल.").
-
-AMOUNT LADDER (ask_level): OUT first ("the full amount", do not repeat the figure). If declined, move to MAD and say the
-minimum figure once, only if "mad_spoken" is false. After that say "minimum" without the figure unless they ask for it.
-If the minimum today is declined, move to DATE: a date for the minimum.
-Only two amounts exist. If they offer less than the minimum, say the minimum is the minimum figure once, then ask for a
-date at the minimum. Never accept or name any other figure, half, part or instalment, and never repeat the caller's
-smaller figure back to them. If the minimum is small, stress that
-it is only this much, so why delay.
-
-BY REASON (reason_class):
-- willing: no rebuttal. Get amount and mode, and offer auto pay so it does not slip again.
-- hardship: ZERO sympathy. Ask when funds come and whether the minimum can come from savings or family meanwhile.
-  Two asks at most, then accept their best offer at or above the minimum.
-- stalling: do not accept. Call it out (light if "callouts" is 0, firm after), say it does not hold for a payment pending
-  since the due date, ask for today or the minimum. Set callout true when you call it out.
-- refusal: probe once for the real reason, else one impact angle and one minimum push.
-- unknown: treat like light stalling while listening for a reason; set new_reason_class when a real reason appears.
-Shifting excuses, or pushing a date later than one in "ptp_history": name it, demand today (callout true).
-Pulling a date earlier is good: accept it.
-
-IMPACT ANGLES: at most one per turn, only from "angles_remaining", pick the one that fits their reason (do not default
-to सिबिल). If an angle was dismissed, you may deepen it once into a personal consequence (concern, not a threat), then drop it.
-FUNDS IDEAS: alternate with angles, one per turn, only from "funds_ideas_remaining".
-DATES: nudge today once. A date within about five days of today: accept. Farther: one angle to pull it in, then ask for
-within two to three days. Put the agreed date in commitment.ptp_date as YYYY-MM-DD, computed from "today".
-
-When amount, date and mode are all agreed (or they will pay today), fill commitment, speech empty, handoff "closing".
-Never restate the commitment.
-Dispute, settlement, waiver, EMI, a charge figure or a statement issue: set topic, speech empty, handoff "dispute".
-Already paid, account block, card blocked, no card, busy, supervisor, too many calls, someone else uses the card, or
-"are you a bot": set topic, speech empty, handoff "servicing".
-If they sound irritated (annoyed, not abusive): irritated true, speech empty, handoff "closing".
-Report commitment fields known so far every turn (null when unknown). question_intent is a short label for your question.
-"""
 
     def extra(self, state: CallState) -> dict:
+        move_id, instruction = next_move(state)
         c = state.commitment
         return {
-            "reason_class": state.reason_class,
-            "reason_text": state.reason_text,
-            "ask_level": state.ask_level,
-            "mad_spoken": state.mad_spoken,
-            "angles_remaining": state.remaining(IMPACT_ANGLES, state.angles_used),
-            "angles_used": state.angles_used,
-            "angles_deepened": state.angles_deepened,
-            "funds_ideas_remaining": state.remaining(FUNDS_IDEAS, state.funds_ideas_used),
-            "callouts": state.callouts,
-            "ptp_history": state.ptp_history,
+            "reason": state.reason_text or state.reason_class,
+            "next_move": {"id": move_id, "do": instruction},
             "commitment_so_far": {"amount": c.amount, "ptp_date": c.ptp_date, "mode": c.mode},
         }

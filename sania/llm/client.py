@@ -4,8 +4,8 @@ Works with any OpenAI-compatible server: local vLLM (default, Qwen/Qwen3.5-4B on
 http://localhost:8000/v1), OpenAI, or others. Set SANIA_LLM_BASE_URL / SANIA_MODEL.
 
 JSON is requested with `response_format` json_schema (vLLM enforces it with
-structured outputs). The schema is also written into the prompt and the reply is
-parsed leniently, in case a server ignores the constraint.
+structured outputs). A compact picture of the shape is also written into the
+prompt and the reply is parsed leniently, in case a server ignores the constraint.
 """
 
 import json
@@ -15,6 +15,7 @@ import re
 import openai
 
 from sania import config
+from sania.llm import schema_hint
 
 log = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ class LLMClient:
     def __call__(self, system: str, user: str, schema: dict, effort: str = "low",
                  model: str = config.MODEL) -> dict | None:
         """`effort` is not used by OpenAI-compatible servers."""
-        system += "\n\nReply with ONLY one JSON object that matches this JSON schema:\n" + json.dumps(schema)
+        system += "\n\nReply with ONLY one JSON object shaped like:\n" + schema_hint(schema)
         extra_body = {}
         if config.LLM_THINKING is not None:  # Qwen chat-template switch, understood by vLLM
             extra_body["chat_template_kwargs"] = {"enable_thinking": config.LLM_THINKING}
@@ -53,6 +54,8 @@ class LLMClient:
                 messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
                 max_tokens=config.LLM_MAX_TOKENS,
                 temperature=0.7,
+                top_p=config.LLM_TOP_P,
+                presence_penalty=config.LLM_PRESENCE_PENALTY,
                 response_format={
                     "type": "json_schema",
                     "json_schema": {"name": "reply", "schema": schema, "strict": True},

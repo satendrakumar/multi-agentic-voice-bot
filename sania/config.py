@@ -1,16 +1,23 @@
 """Runtime settings. Override with environment variables or a .env file in the repo root."""
 
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 
 load_dotenv()  # real environment variables win over .env values
 
+# Prompts: prompts/<version>/*.md at the repo root (see prompts/README.md).
+PROMPT_VERSION = os.getenv("SANIA_PROMPT_VERSION", "v1")
+PROMPTS_DIR = Path(os.getenv("SANIA_PROMPTS_DIR", Path(__file__).resolve().parent.parent / "prompts"))
+
 # LLM backend: "openai" (any OpenAI-compatible server, e.g. local vLLM) or "claude" (Anthropic API).
 LLM_BACKEND = os.getenv("SANIA_LLM", "openai")
 LLM_BASE_URL = os.getenv("SANIA_LLM_BASE_URL", "http://localhost:8000/v1")
 LLM_API_KEY = os.getenv("SANIA_LLM_API_KEY", "EMPTY")  # vLLM ignores it unless started with --api-key
-LLM_MAX_TOKENS = int(os.getenv("SANIA_LLM_MAX_TOKENS", "1024"))  # prompt + this must fit max_model_len
+LLM_MAX_TOKENS = int(os.getenv("SANIA_LLM_MAX_TOKENS", "400"))  # replies are short JSON; low cap stops runaway loops
+LLM_TOP_P = float(os.getenv("SANIA_LLM_TOP_P", "0.8"))            # Qwen's recommended non-thinking sampling
+LLM_PRESENCE_PENALTY = float(os.getenv("SANIA_LLM_PRESENCE_PENALTY", "1.0"))  # discourages repeating words
 # Qwen thinking mode on vLLM: "1" on, "0" off, unset = don't send the switch (for other servers).
 _thinking = os.getenv("SANIA_LLM_THINKING")
 LLM_THINKING = None if _thinking is None else _thinking == "1"

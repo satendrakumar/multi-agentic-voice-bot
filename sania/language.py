@@ -6,7 +6,7 @@ Only an explicit request ("in English", "हिंदी में बोलो"
 
 import re
 
-from sania import config
+from sania import config, prompts
 from sania.llm import LLM, STRING, obj
 from sania.state import CallState, Lang
 
@@ -43,7 +43,7 @@ def transliterate_name(name: str, llm: LLM) -> str | None:
     if key in NAME_TABLE:
         return NAME_TABLE[key]
     answer = llm(
-        system="Transliterate the Indian person name into Devanagari script. Return only the name.",
+        system=prompts.load("transliterate"),
         user=name,
         schema=obj(devanagari=STRING),
         effort="low",
@@ -77,7 +77,9 @@ def observe(state: CallState, text: str) -> None:
     lang = caller_language(text)
     if lang:
         state.language = lang
-    if state.turn_no >= 3:
+        state.language_votes += 1
+    # Lock after three replies that really show a language; "yes" / "ok" / "speaking" don't count.
+    if state.language_votes >= 3:
         state.language_locked = True
 
 

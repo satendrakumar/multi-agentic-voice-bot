@@ -18,16 +18,12 @@ class DisclosureAgent(Agent):
             "{card_last4_words} has {out_words} due since {due_date_words}, can you pay it today."
         ),
     }
-    instructions = """
-ROLE: The caller just confirmed their identity. Say ONE breath, in this order:
-your name सानिया (Sania in ENGLISH) from HDFC Bank collections, that this is a "recorded line" (say those exact words),
-their card name credit card ending the last four digits, the outstanding amount due since the due date,
-then ask if they can pay it today. Use the account values exactly as given. Vary the wording.
-One or two sentences. Do not mention the minimum. handoff is "reason".
-"""
 
     def fallback(self, state: CallState) -> str:
         return self.fallback_lines[state.language].format(**state.profile.spoken())
+
+    def extra(self, state: CallState) -> dict:
+        return {"example": self.fallback(state)}
 
     def validate(self, speech: str, state: CallState) -> list[str]:
         low = speech.lower()

@@ -11,9 +11,8 @@ UNCLEAR = {"identity": "UNCLEAR", "identity_evidence": ""}
 
 def negotiation_signals(**overrides):
     signals = {
-        "ask_level": "OUT", "angle_used": None, "angle_deepened": None, "funds_idea_used": None,
-        "callout": False, "commitment": {"amount": None, "ptp_date": None, "mode": None, "firm_today": False},
-        "new_reason_class": None, "irritated": False, "topic": None, "question_intent": "ask",
+        "move_done": None, "commitment": {"amount": None, "ptp_date": None, "mode": None, "firm_today": False},
+        "irritated": False, "topic": None,
     }
     signals.update(overrides)
     return signals
@@ -84,11 +83,16 @@ def test_angles_tracked_and_commitment_goes_to_closing(profile, fake_llm):
     bot.start()
     s = bot.state
     s.verified, s.stage, s.reason_class = True, Stage.NEGOTIATION, "stalling"
+    s.mad_spoken, s.callouts = True, 1
 
-    fake_llm.add("negotiation", "Minimum pending रहा तो card block हो सकता है, आज या कल.",
-                 negotiation_signals(angle_used="card_block", callout=True, ask_level="MAD"))
+    # Code picks the move; the model reports it back in move_done.
+    from sania.agents.negotiation import next_move
+    assert next_move(s)[0] == "angle:cibil"   # stalling -> best-fitting angle first
+    fake_llm.add("negotiation", "Minimum pending रहा तो सिबिल पे असर पड़ेगा, आज या कल.",
+                 negotiation_signals(move_done="angle:cibil"))
     bot.respond("next week कर दूँगा")
-    assert s.angles_used == ["card_block"] and s.callouts == 1
+    assert s.angles_used == ["cibil"]
+    assert next_move(s)[0] == "funds:savings_family"   # angles and funds ideas alternate
 
     # Full commitment -> negotiation stays silent, closing speaks in the same turn.
     fake_llm.add("negotiation", "ठीक है.", negotiation_signals(
@@ -126,3 +130,48 @@ def test_model_failure_uses_fallback(profile, fake_llm):
     bot.start()
     reply = bot.respond("हम्म क्या")  # no scripted reply -> the LLM "fails"
     assert reply == "<|HINDI|> जी, HDFC collections से call है, क्या आप राहुल जी बोल रहे हैं."
+
+
+def test_next_move_policy(profile):
+    from sania.agents.negotiation import next_move
+    from sania.state import CallState
+    s = CallState(profile, verified=True, reason_class="hardship")
+    assert next_move(s)[0] == "pivot_minimum" and "three thousand five hundred rupees" in next_move(s)[1]
+    s.mad_spoken = True
+    assert next_move(s)[0] == "funds:savings_family"          # hardship: money solution before consequences
+    s.funds_ideas_used.append("savings_family")
+    assert next_move(s)[0] == "angle:future_credit"           # then the angle that fits hardship
+    s.angles_used = ["cibil", "card_block", "future_credit", "escalation", "other_products"]
+    s.funds_ideas_used = ["savings_family", "alt_mode", "salary_anchor"]
+    assert next_move(s)[0] == "ask_date"                      # everything used: ask for a firm date
+
+
+def test_reason_is_asked_only_once(profile, fake_llm):
+    bot = Orchestrator(profile, llm=fake_llm)
+    bot.start()
+    bot.state.verified, bot.state.stage, bot.state.reason_asked = True, Stage.REASON, True
+    reason = {"reason_class": "unknown", "reason_text": None, "topic": None, "question_intent": "reason"}
+    fake_llm.add("reason", "please tell me the reason why the payment is pending.", reason)
+    fake_llm.add("negotiation", "आज minimum कर दीजिए.", negotiation_signals(move_done="pivot_minimum"))
+    bot.respond("It's not a bad thing")
+    assert bot.state.stage == Stage.NEGOTIATION     # second reason ask was replaced by negotiation
+
+
+def test_closing_question_never_ends_the_call(profile, fake_llm):
+    bot = Orchestrator(profile, llm=fake_llm)
+    bot.start()
+    bot.state.verified, bot.state.stage = True, Stage.CLOSING
+    fake_llm.add("closing", "Noted. Do you need any other help.", {"asked_help": False, "topic": None}, end_call=True)
+    reply = bot.respond("ok")
+    assert not reply.endswith("ENDCALL") and bot.state.help_asked
+    fake_llm.add("closing", "Is there anything else I can help with.", {"asked_help": True, "topic": None})
+    reply = bot.respond("no")
+    assert reply.endswith("ENDCALL") and "help" not in reply.lower()   # second ask replaced by the goodbye
+
+
+def test_annoyance_is_not_opt_out(fake_llm):
+    from sania.agents.safety import HardStopClassifier
+    fake_llm.replies["classifier"] = [{"hardstop": "opt_out", "confidence": 0.9}] * 2
+    classifier = HardStopClassifier()
+    assert classifier.classify("बोला ना next week", fake_llm) is None
+    assert classifier.classify("मुझे call मत करो", fake_llm) == "opt_out"

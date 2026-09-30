@@ -62,6 +62,15 @@ For a telephony stack instead of the local mic, implement `AudioIO` (or call `Or
 | `SANIA_VAD` | `silero` | Speech chunking: `silero`, `energy` |
 | `SANIA_MAX_CHUNK_S` | `15` | Longest audio chunk sent to STT |
 
+## Prompts
+
+All prompt text lives in versioned folders under [`prompts/`](prompts/README.md) (one `.md` per agent, plus shared rules, classifier, and negotiation move texts). Pick a version with `SANIA_PROMPT_VERSION`. To try a change, copy the folder to a new version and compare with:
+
+```bash
+uv run python scripts/simulate_calls.py                          # replay scripted callers on the real LLM
+SANIA_PROMPT_VERSION=v2 uv run python scripts/simulate_calls.py hardship
+```
+
 ## Code layout
 
 ```
@@ -82,7 +91,7 @@ sania/
   input_quality.py     S3: silence and low-confidence audio
   numbers.py           money / digit / date to English words
   state.py             CallState, Profile, topic lists
-  prompts.py           shared rules block + support contacts
+  prompts.py           loads prompts/<version>/*.md and *.toml; support contacts
   llm/
     __init__.py        LLM interface, get_llm() backend switch, JSON-schema helpers
     client.py          LLMClient: OpenAI-compatible servers (vLLM by default)

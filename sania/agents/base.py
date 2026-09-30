@@ -1,15 +1,15 @@
 """Base class for the conversational agents.
 
-An agent is a static role prompt + a signals schema. Each turn the Orchestrator
-passes it a JSON context and gets back an AgentResult. Agents never touch state.
+An agent is a role prompt (prompts/<version>/<name>.md) + a signals schema. Each
+turn the Orchestrator passes it a JSON context and gets back an AgentResult.
+Agents never touch state.
 """
 
 import json
 from dataclasses import dataclass, field
 
-from sania import config
+from sania import config, prompts
 from sania.llm import BOOL, LLM, STRING, enum, nullable, obj
-from sania.prompts import SHARED_RULES
 from sania.state import CallState, Lang
 
 
@@ -23,11 +23,17 @@ class AgentResult:
 
 
 class Agent:
-    name: str = ""
-    instructions: str = ""                 # the agent's role prompt (static, cache-friendly)
+    name: str = ""                         # also the prompt file name: prompts/<version>/<name>.md
     handoffs: tuple[str, ...] = ()         # agents it may hand over to
     signals_schema: dict = obj()
     fallback_lines: dict[Lang, str] = {}   # safe line if the model fails twice
+
+    @property
+    def instructions(self) -> str:
+        return prompts.load(self.name)
+
+    def system_prompt(self) -> str:
+        return f"AGENT: {self.name}\n\n{prompts.load('shared')}\n\n{self.instructions}"
 
     def schema(self) -> dict:
         handoff = nullable(enum(*self.handoffs)) if self.handoffs else {"type": "null"}
@@ -45,13 +51,13 @@ class Agent:
         return self.fallback_lines[state.language].format(name=state.profile.name_dev)
 
     def run(self, context: dict, llm: LLM, feedback: list[str] | None = None) -> AgentResult:
-        user = json.dumps(context, ensure_ascii=False, indent=1)
+        user = json.dumps(context, ensure_ascii=False)
         if feedback:
             user += "\n\nYour previous reply broke these rules. Write it again without breaking them:\n- "
             user += "\n- ".join(feedback)
 
         data = llm(
-            system=f"AGENT: {self.name}\n\n{SHARED_RULES}\n{self.instructions}",
+            system=self.system_prompt(),
             user=user,
             schema=self.schema(),
             effort=config.EFFORT[self.name],

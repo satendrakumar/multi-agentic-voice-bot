@@ -88,6 +88,7 @@ class CallState:
 
     language: Lang = Lang.HINDI
     language_locked: bool = False
+    language_votes: int = 0             # caller replies long enough to show a language
 
     reason_class: str = "unknown"
     reason_text: str | None = None

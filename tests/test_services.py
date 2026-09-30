@@ -28,12 +28,13 @@ def test_identifiers_digit_by_digit_and_dates():
 
 def test_mirror_then_lock(profile):
     s = CallState(profile)
-    s.turn_no = 1
     language.observe(s, "Yes speaking, what is this about")
     assert s.language == Lang.ENGLISH
-    s.turn_no = 3
-    language.observe(s, "I will pay tomorrow")
-    assert s.language_locked
+    language.observe(s, "Yes.")                       # too short: no vote, no lock
+    language.observe(s, "मेरे पास पैसे नहीं थे")       # mirroring still follows the caller
+    assert s.language == Lang.HINDI and not s.language_locked
+    language.observe(s, "I will pay tomorrow")        # third real vote -> locked
+    assert s.language_locked and s.language == Lang.ENGLISH
     language.observe(s, "कल कर दूँगा पक्का भाई")
     assert s.language == Lang.ENGLISH          # locked, no flip
     language.observe(s, "हिंदी में बोलो")
@@ -66,6 +67,10 @@ def test_third_amount_empathy_hedging_blocked(profile):
     assert guard.check("आपका MAD pending है.", s)
     assert guard.check("न्यूनतम भुगतान आज कर दीजिए.", s)       # formal Hindi
     assert guard.check("आज पेमेंट कर दीजिए.", s)               # banking word in Devanagari
+    assert guard.check("I will process the payment for the full amount.", s)   # false payment claim
+    assert guard.check("मैं reason जानने के लिए पूछ रहा हूँ.", s)             # masculine self-reference
+    assert guard.check("It was a difficult situation, but pay today.", s)      # sympathy
+    assert not guard.check("आप app या net banking से minimum pay कर दीजिए.", s)
 
 
 def test_minimum_figure_said_once_unless_caller_names_an_amount(profile):
@@ -81,6 +86,7 @@ def test_autofix_punctuation_and_name(profile):
     assert guard.autofix("राहुल जी, आज pay कीजिए.", s, name_allowed=False) == "आज pay कीजिए."
     assert guard.autofix("धन्यवाद राहुल.", s, name_allowed=True) == "धन्यवाद राहुल जी."
     assert guard.autofix("<|HINDI|> ठीक है - धन्यवाद ENDCALL", s, True) == "ठीक है धन्यवाद."
+    assert guard.autofix("धन्यवाद <name> जी.", s, name_allowed=True) == "धन्यवाद राहुल जी."
 
 
 # --- S3 input quality ------------------------------------------------------------------
@@ -108,3 +114,16 @@ def test_self_identification_rule(profile):
     assert not looks_like_self_id("कौन बोल रहा है", profile)
     assert not looks_like_self_id("I'm not able to understand", profile)
     assert not looks_like_self_id("जी", profile)
+
+
+def test_never_agrees_amount_is_wrong(profile):
+    s = CallState(profile, verified=True, stage=Stage.DISPUTE)
+    assert guard.check("जी, यह amount galat hai.", s)
+    assert not guard.check("जी, इसमें कितना amount आपको गलत लग रहा है.", s)   # asking is fine
+
+
+def test_no_promise_that_calls_stop(profile):
+    s = CallState(profile, verified=True, stage=Stage.SAFETY)
+    assert guard.check("ठीक है, calls सचमुच बंद कर दूँगी.", s)
+    assert guard.check("We will not call you again.", s)
+    assert not guard.check("ठीक है, आपकी बात note कर ली है.", s)
